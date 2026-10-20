@@ -107,3 +107,45 @@ func TestToTournamentResponse_NonHostCannotSeeManagementFields(t *testing.T) {
 		t.Error("non-host response should preserve public tournament fields")
 	}
 }
+
+func TestCanJoinTournament(t *testing.T) {
+	tests := []struct {
+		name     string
+		status   string
+		expected bool
+	}{
+		{
+			name:     "upcoming tournament allows joining",
+			status:   models.StatusUpcoming,
+			expected: true,
+		},
+		{
+			name:     "live tournament rejects joining",
+			status:   models.StatusLive,
+			expected: false,
+		},
+		{
+			name:     "completed tournament rejects joining",
+			status:   models.StatusCompleted,
+			expected: false,
+		},
+		{
+			name:     "unknown or empty status rejects joining",
+			status:   "",
+			expected: false,
+		},
+		{
+			name:     "arbitrary invalid status rejects joining",
+			status:   "cancelled",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := canJoinTournament(tt.status); got != tt.expected {
+				t.Errorf("canJoinTournament(%q) = %v, want %v", tt.status, got, tt.expected)
+			}
+		})
+	}
+}

@@ -33,6 +33,11 @@ func getUserIDFromContext(c *gin.Context) (primitive.ObjectID, error) {
 	return userObjID, nil
 }
 
+// canJoinTournament returns true if the tournament status is upcoming and can accept participants
+func canJoinTournament(status string) bool {
+	return status == models.StatusUpcoming
+}
+
 
 
 func JoinPublicTournament(c *gin.Context) {
@@ -70,6 +75,11 @@ func JoinPublicTournament(c *gin.Context) {
 		return
 	}
 
+	if !canJoinTournament(tournament.Status) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Tournament is not accepting participants. Status is " + tournament.Status})
+		return
+	}
+
 	displayName, _ := c.Get("displayName")
 	name, _ := displayName.(string)
 
@@ -84,6 +94,7 @@ func JoinPublicTournament(c *gin.Context) {
 		context.Background(),
 		bson.M{
 			"_id":                 objID,
+			"status":              models.StatusUpcoming,
 			"participants.userId": bson.M{"$ne": userObjID},
 			"$expr": bson.M{
 				"$lt": []interface{}{
@@ -155,6 +166,11 @@ func JoinPrivateTournament(c *gin.Context) {
 		return
 	}
 
+	if !canJoinTournament(tournament.Status) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Tournament is not accepting join requests. Status is " + tournament.Status})
+		return
+	}
+
 	if len(tournament.Participants) >= tournament.MaxParticipants {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Tournament is full"})
 		return
@@ -211,6 +227,7 @@ func JoinPrivateTournament(c *gin.Context) {
 		context.Background(),
 		bson.M{
 			"_id":                 tournament.ID,
+			"status":              models.StatusUpcoming,
 			"joinRequests.userId": bson.M{"$ne": userObjID},
 		},
 		bson.M{"$push": bson.M{"joinRequests": newRequest}},
@@ -339,10 +356,16 @@ func ChooseStance(c *gin.Context) {
 		return
 	}
 
+	if !canJoinTournament(tournament.Status) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot change stance after tournament has started or concluded"})
+		return
+	}
+
 	_, err = db.TournamentCollection.UpdateOne(
 		context.Background(),
 		bson.M{
 			"_id":                 objID,
+			"status":              models.StatusUpcoming,
 			"participants.userId": userObjID,
 		},
 		bson.M{"$set": bson.M{"participants.$.stance": req.Stance}},
@@ -433,6 +456,11 @@ func ManageJoinRequest(c *gin.Context) {
 
 	// ========== APPROVE ==========
 	if req.Action == "approve" {
+		if !canJoinTournament(tournament.Status) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot approve requests for a tournament that is " + tournament.Status})
+			return
+		}
+
 		if len(tournament.Participants) >= tournament.MaxParticipants {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Tournament is full. Cannot approve more requests."})
 			return
@@ -456,7 +484,8 @@ func ManageJoinRequest(c *gin.Context) {
 		result, err := db.TournamentCollection.UpdateOne(
 			context.Background(),
 			bson.M{
-				"_id": objID,
+				"_id":    objID,
+				"status": models.StatusUpcoming,
 				"joinRequests": bson.M{
 					"$elemMatch": bson.M{"userId": requestUserObjID, "status": "pending"},
 				},
